@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="description" content="just wow">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linear Algebra Node Graph</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f4f5f7;
+            color: #333;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .problem-statement {
+            background: #fff;
+            padding: 12px 18px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            margin-bottom: 12px;
+            width: 100%;
+            max-width: 700px;
+        }
+
+        .problem-statement h2 {
+            margin: 0 0 6px 0;
+            font-size: 1.1em;
+            color: #1a1a1a;
+        }
+
+        .problem-statement p {
+            font-size: 0.95em;
+            line-height: 1.5;
+            color: #444;
+        }
+
+        #graph-wrapper {
+            position: relative;
+            margin: 50px auto;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #edges-svg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+        
+        .edge-path {
+            stroke: #94a3b8;
+            stroke-width: 2;
+            fill: none;
+            transition: d 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .arrowhead {
+            fill: #94a3b8;
+        }
+
+        .graph-node {
+            position: absolute;
+            top: 0; left: 0;
+            background: #fff;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            z-index: 2;
+        }
+
+        .node-collapsed {
+            width: 60px; height: 60px;
+            border-radius: 50%;
+            cursor: pointer;
+            background: #2b6cb0;
+            color: #fff;
+            z-index: 3;
+        }
+        .node-collapsed:hover {
+            background: #2c5282;
+            box-shadow: 0 0 0 6px rgba(43, 108, 176, 0.3), 0 8px 15px rgba(0,0,0,0.15);
+        }
+
+        .node-expanded {
+            width: 720px; height: 480px;
+            border-radius: 8px;
+            cursor: default;
+            z-index: 2;
+        }
+
+        .node-label {
+            color: #fff;
+            font-weight: 600;
+            font-size: 1.2em;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        .node-expanded .node-label { opacity: 0; }
+        .node-collapsed .node-label { opacity: 1; }
+
+        .node-content {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0;
+            transition: opacity 0.4s ease 0.3s;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+        }
+        .node-expanded .node-content {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* --- Node 1: Graphical Widget Styles --- */
+        .graph-widget-container {
+            display: flex;
+            height: 100%;
+            overflow: hidden;
+        }
+        .gw-sidebar {
+            width: 200px;
+            flex-shrink: 0;
+            padding: 12px;
+            border-right: 1px solid #eee;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: #fafafa;
+            border-radius: 8px 0 0 8px;
+        }
+        .gw-eq-group { display: flex; flex-direction: column; gap: 4px; }
+        .gw-eq-group label { font-size: 0.8em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .gw-eq-row { display: flex; gap: 4px; }
+        .gw-eq-group input {
+            flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid #ddd; border-radius: 4px;
+            font-family: monospace; font-size: 0.85em; outline: none; transition: border-color 0.2s;
+        }
+        .gw-eq-group input:focus { border-color: #5b9bd5; }
+        .gw-eq-group input.error { border-color: #ff6b6b; }
+        .gw-btn-draw {
+            padding: 0 8px; background: #f0f2f5; border: 1px solid #ddd; border-radius: 4px;
+            cursor: pointer; font-size: 1.2em; color: #555; line-height: 1; transition: all 0.2s; flex-shrink: 0;
+        }
+        .gw-btn-draw:hover { background: #e4e6e9; }
+        .gw-btn-draw.active { background: #5b9bd5; color: #fff; border-color: #5b9bd5; }
+        .gw-info-box {
+            margin-top: auto; padding: 8px; background: #eaf4ee; border: 1px solid #d0e8d8;
+            border-radius: 6px; font-size: 0.8em;
+        }
+        .gw-info-box strong { color: #2a7d4f; display: block; margin-bottom: 2px; }
+        .gw-info-box span { color: #1a5c36; font-weight: bold; }
+        .gw-hint { font-size: 0.75em; color: #888; line-height: 1.3; }
+        .gw-graph-area { flex: 1; position: relative; background: #fff; }
+        .gw-canvas { display: block; }
+        .gw-status-bar {
+            position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+            background: rgba(40, 40, 40, 0.85); color: #fff; padding: 4px 10px; border-radius: 12px;
+            font-size: 0.75em; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap;
+        }
+        .gw-status-bar.visible { opacity: 1; }
+
+        /* --- Node 2: Algebraic Widget Styles --- */
+        .alg-widget-container {
+            padding: 30px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .alg-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 24px;
+            width: 100%;
+            max-width: 500px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .alg-card h2 { margin: 0 0 8px 0; font-size: 1.3em; color: #1a1a1a; }
+        .alg-card p { margin-bottom: 15px; color: #555; font-size: 0.95em; }
+        .alg-eqs { background: #f8fafc; padding: 12px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0; }
+        .alg-eqs strong { display: block; font-family: monospace; font-size: 1.1em; margin: 4px 0; color: #2d3748; }
+        .alg-input-row { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; }
+        .alg-input-group { display: flex; align-items: center; gap: 6px; flex: 1; }
+        .alg-input-group label { font-weight: 600; font-size: 1em; }
+        .alg-input-group input {
+            width: 100%; padding: 8px 12px; border: 1px solid #cbd5e0; border-radius: 6px;
+            font-size: 1em; transition: border-color 0.2s; outline: none;
+        }
+        .alg-input-group input:focus { border-color: #5b9bd5; }
+        .alg-btn {
+            width: 100%; padding: 10px; background: #2b6cb0; color: #fff; border: none;
+            border-radius: 6px; font-weight: 600; font-size: 1em; cursor: pointer; transition: background 0.2s;
+        }
+        .alg-btn:hover { background: #2c5282; }
+        .alg-feedback {
+            margin-top: 15px; padding: 15px; border-radius: 8px; font-size: 0.9em;
+            display: none; line-height: 1.5;
+        }
+        .alg-feedback.correct { display: block; background: #eaf4ee; color: #1a5c36; border: 1px solid #c6f6d5; }
+        .alg-feedback.wrong { display: block; background: #fff5f5; color: #9b2c2c; border: 1px solid #fed7d7; }
+        .alg-step { margin-top: 8px; padding-left: 15px; border-left: 3px solid #fc8181; }
+
+    </style>
+</head>
+<body>
+    <div class="problem-statement">
+        <h2>Example 1.1: A Graphical Solution</h2>
+        <p>Use a graph to find the solution to the following system of equations:<br>
+        <strong>x + y = 3</strong><br>
+        <strong>y − x = 5</strong></p>
+    </div>
+    <div id="graph-wrapper">
+        <svg id="edges-svg">
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" class="arrowhead" />
+                </marker>
+            </defs>
+        </svg>
+        
+        <!-- Node 1: Graphical -->
+        <div id="node-graphical" class="graph-node node-expanded" onclick="handleNodeClick('graphical')">
+            <div class="node-label">1.1</div>
+            <div class="node-content">
+                <div class="graph-widget-container">
+                    <div class="gw-sidebar">
+                        <div class="gw-eq-group">
+                            <label style="color: #2b6cb0;">Line 1</label>
+                            <div class="gw-eq-row">
+                                <input type="text" id="eq1" value="x + y = 3">
+                                <button class="gw-btn-draw" id="btn1">+</button>
+                            </div>
+                        </div>
+                        <div class="gw-eq-group">
+                            <label style="color: #c53030;">Line 2</label>
+                            <div class="gw-eq-row">
+                                <input type="text" id="eq2" value="y - x = 5">
+                                <button class="gw-btn-draw" id="btn2">+</button>
+                            </div>
+                        </div>
+                        <div class="gw-hint">Type eq (e.g. <b>y = 2x - 1</b>) or click <b>+</b> to draw. Scroll to zoom, drag to pan.</div>
+                        <div class="gw-info-box">
+                            <strong>Intersection</strong>
+                            <span id="int-text">-</span>
+                        </div>
+                    </div>
+                    <div class="gw-graph-area">
+                        <canvas id="graphCanvas" class="gw-canvas"></canvas>
+                        <div class="gw-status-bar" id="status">Click to place first point</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Node 2: Algebraic -->
+        <div id="node-algebraic" class="graph-node node-collapsed" onclick="handleNodeClick('algebraic')">
+            <div class="node-label">1.2</div>
+            <div class="node-content">
+                <div class="alg-widget-container">
+                    <div class="alg-card">
+                        <h2>Example 1.2: Algebraic Solution</h2>
+                        <p>Solve the following system of equations algebraically:</p>
+                        <div class="alg-eqs">
+                            <strong>1) 2x + y = 5</strong>
+                            <strong>2) x - y = 1</strong>
+                        </div>
+                        <div class="alg-input-row">
+                            <div class="alg-input-group">
+                                <label>x =</label>
+                                <input type="number" id="ans-x" placeholder="?">
+                            </div>
+                            <div class="alg-input-group">
+                                <label>y =</label>
+                                <input type="number" id="ans-y" placeholder="?">
+                            </div>
+                        </div>
+                        <button class="alg-btn" onclick="checkAlgebraicAnswer()">Check Answer</button>
+                        <div id="alg-feedback" class="alg-feedback"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- NODE GRAPH LOGIC ---
+        let activeNode = 'graphical';
+        
+        const nodesConfig = [
+            { id: 'graphical' },
+            { id: 'algebraic' }
+        ];
+        const edgesConfig = [
+            { source: 'graphical', target: 'algebraic' }
+        ];
+
+        function handleNodeClick(id) {
+            if (id === activeNode) return;
+            activeNode = id;
+            updateLayout();
+            
+            // Scroll the newly expanded node into view smoothly
+            setTimeout(() => {
+                const expandedEl = document.getElementById(`node-${id}`);
+                expandedEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+
+            // Re-init graph canvas if switching back to graphical
+            if (id === 'graphical') {
+                setTimeout(initGraphWidget, 600);
+            }
+        }
+
+        function updateLayout() {
+            const g = new dagre.graphlib.Graph();
+            g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 120, marginx: 50, marginy: 50 });
+            g.setDefaultEdgeLabel(() => ({}));
+
+            nodesConfig.forEach(n => {
+                const isExpanded = n.id === activeNode;
+                g.setNode(n.id, {
+                    width: isExpanded ? 720 : 60,
+                    height: isExpanded ? 480 : 60
+                });
+            });
+
+            edgesConfig.forEach(e => g.setEdge(e.source, e.target));
+            dagre.layout(g);
+
+            const svg = document.getElementById('edges-svg');
+            while (svg.childNodes.length > 1) {
+                svg.removeChild(svg.lastChild);
+            }
+
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            g.nodes().forEach(v => {
+                const node = g.node(v);
+                minX = Math.min(minX, node.x - node.width / 2);
+                minY = Math.min(minY, node.y - node.height / 2);
+                maxX = Math.max(maxX, node.x + node.width / 2);
+                maxY = Math.max(maxY, node.y + node.height / 2);
+            });
+            const graphWidth = maxX - minX;
+            const graphHeight = maxY - minY;
+
+            svg.setAttribute('width', graphWidth);
+            svg.setAttribute('height', graphHeight);
+            svg.style.width = graphWidth + 'px';
+            svg.style.height = graphHeight + 'px';
+
+            const wrapper = document.getElementById('graph-wrapper');
+            wrapper.style.width = graphWidth + 'px';
+            wrapper.style.height = graphHeight + 'px';
+
+            g.nodes().forEach(v => {
+                const nodeData = g.node(v);
+                const el = document.getElementById(`node-${v}`);
+                const isExpanded = v === activeNode;
+                
+                const w = isExpanded ? 720 : 60;
+                const h = isExpanded ? 480 : 60;
+                
+                const tx = nodeData.x - w / 2 - minX;
+                const ty = nodeData.y - h / 2 - minY;
+
+                el.style.width = w + 'px';
+                el.style.height = h + 'px';
+                el.style.transform = `translate(${tx}px, ${ty}px)`;
+                el.className = `graph-node ${isExpanded ? 'node-expanded' : 'node-collapsed'}`;
+            });
+
+            edgesConfig.forEach(e => {
+                const sourceData = g.node(e.source);
+                const targetData = g.node(e.target);
+                
+                const sW = e.source === activeNode ? 720 : 60;
+                const sH = e.source === activeNode ? 480 : 60;
+                const x1 = sourceData.x - minX;
+                const y1 = sourceData.y + sH / 2 - minY;
+
+                const tW = e.target === activeNode ? 720 : 60;
+                const tH = e.target === activeNode ? 480 : 60;
+                const x2 = targetData.x - minX;
+                const y2 = targetData.y - tH / 2 - minY;
+
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', x1);
+                line.setAttribute('y1', y1);
+                line.setAttribute('x2', x2);
+                line.setAttribute('y2', y2);
+                line.setAttribute('class', 'edge-path');
+                line.setAttribute('marker-end', 'url(#arrowhead)');
+                svg.appendChild(line);
+            });
+        }
+
+        // --- GRAPH WIDGET LOGIC (Node 1) ---
+        const canvas = document.getElementById('graphCanvas');
+        const ctx = canvas.getContext('2d');
+        const eq1Input = document.getElementById('eq1');
+        const eq2Input = document.getElementById('eq2');
+        const btn1 = document.getElementById('btn1');
+        const btn2 = document.getElementById('btn2');
+        const intText = document.getElementById('int-text');
+        const statusEl = document.getElementById('status');
+
+        let W, H, originX, originY, scale = 40;
+        let lines = [
+            { m: null, b: null, color: '#2b6cb0' },
+            { m: null, b: null, color: '#c53030' }
+        ];
+        let drawState = { active: false, lineIdx: -1, p1: null };
+        let mouse = { x: 0, y: 0, mx: 0, my: 0, onGrid: false };
+        let isPanning = false, panStart = { x: 0, y: 0 }, panOriginStart = { x: 0, y: 0 };
+
+        function initGraphWidget() {
+            const rect = canvas.parentElement.getBoundingClientRect();
+            W = canvas.width = rect.width;
+            H = canvas.height = rect.height;
+            originX = W / 2; originY = H / 2;
+            handleGraphInput(eq1Input, 0, false);
+            handleGraphInput(eq2Input, 1, true);
+        }
+
+        const toX = (mx) => originX + mx * scale;
+        const toY = (my) => originY - my * scale;
+        const toMX = (x) => (x - originX) / scale;
+        const toMY = (y) => (originY - y) / scale;
+        const snap = (v) => Math.round(v);
+
+        function parseExpr(s) {
+            s = s.replace(/\s/g, '').replace(/-/g, '+-');
+            const parts = s.split('+').filter(p => p !== '');
+            let x = 0, y = 0, c = 0;
+            for (let p of parts) {
+                if (p.includes('x')) { let n = p.replace('x', ''); x += (n === '' || n === '+') ? 1 : (n === '-' ? -1 : parseFloat(n)); }
+                else if (p.includes('y')) { let n = p.replace('y', ''); y += (n === '' || n === '+') ? 1 : (n === '-' ? -1 : parseFloat(n)); }
+                else { if (p !== '') c += parseFloat(p); }
+            }
+            return { x, y, c };
+        }
+
+        function parseEquation(str) {
+            if (!str || !str.includes('=')) return null;
+            const [left, right] = str.split('=').map(parseExpr);
+            if (!left || !right) return null;
+            const A = left.x - right.x, B = left.y - right.y, C = left.c - right.c;
+            if (B === 0) return null;
+            return { m: -A / B, b: -C / B };
+        }
+
+        function formatEq(m, b) {
+            const ms = Math.round(m * 100) / 100, bs = Math.round(Math.abs(b) * 100) / 100;
+            return `y = ${ms}x ${b >= 0 ? '+' : '-'} ${bs}`;
+        }
+
+        function handleGraphInput(input, idx, doFitView) {
+            const res = parseEquation(input.value);
+            if (res) { lines[idx].m = res.m; lines[idx].b = res.b; input.classList.remove('error'); }
+            else if (input.value.trim() === '') { lines[idx].m = null; lines[idx].b = null; input.classList.remove('error'); }
+            else { input.classList.add('error'); }
+            if (doFitView) fitView();
+            renderGraph();
+        }
+
+        function fitView() {
+            const l1 = lines[0], l2 = lines[1];
+            let points = [[0, 0]];
+            if (l1.m !== null) { points.push([0, l1.b]); if (Math.abs(l1.m) > 0.01) points.push([-l1.b / l1.m, 0]); }
+            if (l2.m !== null) { points.push([0, l2.b]); if (Math.abs(l2.m) > 0.01) points.push([-l2.b / l2.m, 0]); }
+            if (l1.m !== null && l2.m !== null && Math.abs(l1.m - l2.m) > 0.01) {
+                const ix = (l2.b - l1.b) / (l1.m - l2.m), iy = l1.m * ix + l1.b;
+                points.push([ix, iy]);
+            }
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (let [x, y] of points) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+            const padX = (maxX - minX) * 0.25 || 2, padY = (maxY - minY) * 0.25 || 2;
+            minX -= padX; maxX += padX; minY -= padY; maxY += padY;
+            const rangeX = maxX - minX, rangeY = maxY - minY;
+            scale = Math.min(W / rangeX, H / rangeY);
+            scale = Math.max(10, Math.min(100, scale));
+            originX = W / 2 - ((minX + maxX) / 2) * scale;
+            originY = H / 2 + ((minY + maxY) / 2) * scale;
+        }
+
+        function renderGraph() {
+            if (!ctx || W === 0) return;
+            ctx.clearRect(0, 0, W, H);
+            drawGrid();
+            drawLines();
+            drawPreview();
+            drawIntersection();
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = '#f0f0f0'; ctx.lineWidth = 1;
+            const startX = Math.floor(toMX(0)), endX = Math.ceil(toMX(W));
+            const startY = Math.floor(toMY(H)), endY = Math.ceil(toMY(0));
+            for (let i = startX; i <= endX; i++) { ctx.beginPath(); ctx.moveTo(toX(i), 0); ctx.lineTo(toX(i), H); ctx.stroke(); }
+            for (let i = startY; i <= endY; i++) { ctx.beginPath(); ctx.moveTo(0, toY(i)); ctx.lineTo(W, toY(i)); ctx.stroke(); }
+            ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(0, originY); ctx.lineTo(W, originY); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(originX, 0); ctx.lineTo(originX, H); ctx.stroke();
+            ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+            for (let i = startX; i <= endX; i++) if (i !== 0) ctx.fillText(i, toX(i), originY + 4);
+            ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+            for (let i = startY; i <= endY; i++) if (i !== 0) ctx.fillText(i, originX - 4, toY(i));
+        }
+
+        function drawLines() {
+            lines.forEach(l => {
+                if (l.m === null) return;
+                ctx.strokeStyle = l.color; ctx.lineWidth = 2.5; ctx.beginPath();
+                ctx.moveTo(0, toY(l.m * toMX(0) + l.b)); ctx.lineTo(W, toY(l.m * toMX(W) + l.b)); ctx.stroke();
+            });
+        }
+
+        function drawPreview() {
+            if (!drawState.active || !mouse.onGrid) return;
+            const sx = snap(mouse.mx), sy = snap(mouse.my);
+            ctx.fillStyle = lines[drawState.lineIdx].color + '80'; ctx.beginPath(); ctx.arc(toX(sx), toY(sy), 4, 0, Math.PI * 2); ctx.fill();
+            if (drawState.p1) {
+                ctx.strokeStyle = lines[drawState.lineIdx].color + '80'; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+                ctx.beginPath(); ctx.moveTo(toX(drawState.p1.x), toY(drawState.p1.y)); ctx.lineTo(toX(sx), toY(sy)); ctx.stroke(); ctx.setLineDash([]);
+                ctx.fillStyle = lines[drawState.lineIdx].color; ctx.beginPath(); ctx.arc(toX(drawState.p1.x), toY(drawState.p1.y), 4, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        function drawIntersection() {
+            const l1 = lines[0], l2 = lines[1];
+            if (l1.m === null || l2.m === null) { intText.textContent = '-'; return; }
+            if (Math.abs(l1.m - l2.m) < 0.01) { intText.textContent = Math.abs(l1.b - l2.b) < 0.01 ? 'Infinite' : 'None'; return; }
+            const ix = (l2.b - l1.b) / (l1.m - l2.m), iy = l1.m * ix + l1.b;
+            const rix = Math.round(ix * 100) / 100, riy = Math.round(iy * 100) / 100;
+            intText.textContent = `(${rix}, ${riy})`;
+            ctx.fillStyle = '#38a169'; ctx.beginPath(); ctx.arc(toX(ix), toY(iy), 5, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+            ctx.fillStyle = '#1a1a1a'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+            ctx.fillText(`(${rix}, ${riy})`, toX(ix) + 8, toY(iy) - 6);
+        }
+
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = e.clientX - rect.left; mouse.y = e.clientY - rect.top;
+            mouse.mx = toMX(mouse.x); mouse.my = toMY(mouse.y); mouse.onGrid = true;
+            if (isPanning) { originX = panOriginStart.x + (e.clientX - panStart.x); originY = panOriginStart.y + (e.clientY - panStart.y); }
+            renderGraph();
+        });
+        canvas.addEventListener('mouseleave', () => { mouse.onGrid = false; renderGraph(); });
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0 || drawState.active) return;
+            isPanning = true; canvas.style.cursor = 'grabbing';
+            panStart.x = e.clientX; panStart.y = e.clientY;
+            panOriginStart.x = originX; panOriginStart.y = originY;
+        });
+        window.addEventListener('mouseup', () => { if (isPanning) { isPanning = false; canvas.style.cursor = drawState.active ? 'crosshair' : 'grab'; } });
+
+        canvas.addEventListener('click', (e) => {
+            if (!drawState.active || !mouse.onGrid) return;
+            const sx = snap(mouse.mx), sy = snap(mouse.my);
+            if (!drawState.p1) {
+                drawState.p1 = { x: sx, y: sy }; statusEl.textContent = 'Click to place second point';
+            } else {
+                if (drawState.p1.x !== sx) {
+                    const m = (sy - drawState.p1.y) / (sx - drawState.p1.x), b = drawState.p1.y - m * drawState.p1.x;
+                    lines[drawState.lineIdx].m = m; lines[drawState.lineIdx].b = b;
+                    const input = drawState.lineIdx === 0 ? eq1Input : eq2Input;
+                    input.value = formatEq(m, b); input.classList.remove('error');
+                    fitView();
+                }
+                cancelDraw();
+            }
+            renderGraph();
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault(); const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
+            const mathXBefore = toMX(mouseX), mathYBefore = toMY(mouseY);
+            let newScale = scale * (e.deltaY > 0 ? 0.9 : 1.1);
+            scale = Math.max(10, Math.min(100, newScale));
+            originX = mouseX - mathXBefore * scale; originY = mouseY + mathYBefore * scale;
+            renderGraph();
+        }, { passive: false });
+
+        function startDraw(idx) {
+            if (drawState.active && drawState.lineIdx === idx) { cancelDraw(); return; }
+            drawState = { active: true, lineIdx: idx, p1: null };
+            btn1.classList.toggle('active', idx === 0); btn2.classList.toggle('active', idx === 1);
+            statusEl.textContent = 'Click to place first point'; statusEl.classList.add('visible');
+            canvas.style.cursor = 'crosshair'; renderGraph();
+        }
+
+        function cancelDraw() {
+            drawState = { active: false, lineIdx: -1, p1: null };
+            btn1.classList.remove('active'); btn2.classList.remove('active');
+            statusEl.classList.remove('visible'); canvas.style.cursor = 'grab'; renderGraph();
+        }
+
+        btn1.addEventListener('click', (e) => { e.stopPropagation(); startDraw(0); });
+        btn2.addEventListener('click', (e) => { e.stopPropagation(); startDraw(1); });
+        eq1Input.addEventListener('input', () => handleGraphInput(eq1Input, 0, true));
+        eq2Input.addEventListener('input', () => handleGraphInput(eq2Input, 1, true));
+
+
+        // --- ALGEBRA WIDGET LOGIC (Node 2) ---
+        function checkAlgebraicAnswer(e) {
+            if (e) e.stopPropagation(); // Prevent collapsing the node when clicking check
+            const xVal = document.getElementById('ans-x').value;
+            const yVal = document.getElementById('ans-y').value;
+            const fbEl = document.getElementById('alg-feedback');
+            
+            if (xVal === '' || yVal === '') {
+                fbEl.className = 'alg-feedback wrong';
+                fbEl.innerHTML = "Please enter values for both x and y.";
+                return;
+            }
+
+            const x = parseFloat(xVal);
+            const y = parseFloat(yVal);
+
+            if (x === 2 && y === 1) {
+                fbEl.className = 'alg-feedback correct';
+                fbEl.innerHTML = "<strong>Correct!</strong> The solution to the system is (2, 1).";
+            } else {
+                fbEl.className = 'alg-feedback wrong';
+                fbEl.innerHTML = `
+                    <strong>Not quite. Here is the step-by-step solution:</strong>
+                    <div class="alg-step">
+                        <p><strong>Step 1:</strong> Add the two equations together to eliminate 'y'.</p>
+                        <p>(2x + y) + (x - y) = 5 + 1</p>
+                        <p>3x = 6</p>
+                    </div>
+                    <div class="alg-step" style="margin-top: 10px; border-color: #fc8181;">
+                        <p><strong>Step 2:</strong> Solve for 'x'.</p>
+                        <p>x = 6 / 3 = <strong>2</strong></p>
+                    </div>
+                    <div class="alg-step" style="margin-top: 10px; border-color: #fc8181;">
+                        <p><strong>Step 3:</strong> Substitute x = 2 back into the second equation.</p>
+                        <p>2 - y = 1</p>
+                        <p>-y = -1</p>
+                        <p>y = <strong>1</strong></p>
+                    </div>
+                    <p style="margin-top: 15px;">The correct answer is <strong>x = 2, y = 1</strong>.</p>
+                `;
+            }
+        }
+
+        // Prevent node collapse when interacting with inputs inside the algebra node
+        document.getElementById('node-algebraic').querySelector('.alg-card').addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        // --- INIT ---
+        window.addEventListener('resize', () => {
+            updateLayout();
+            if (activeNode === 'graphical') initGraphWidget();
+        });
+        
+        updateLayout();
+        setTimeout(initGraphWidget, 50);
+
+    </script>
+</body>
+</html>
